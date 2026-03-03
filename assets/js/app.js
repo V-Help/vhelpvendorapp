@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getStorage, ref, getBlob, listAll } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { getStorage, ref, getDownloadURL, listAll } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // Initialize Firebase with vhelp-user config
@@ -208,20 +208,13 @@ class VendorApp {
                 storagePath = apkItem.fullPath;
             }
 
-            // Download the APK blob directly from Firebase Storage (respects security rules)
-            this.downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+            // Get download URL from Firebase Storage (requires auth per security rules)
+            this.downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting Download...';
             const apkRef = ref(storage, storagePath);
-            const blob = await getBlob(apkRef);
+            const downloadUrl = await getDownloadURL(apkRef);
 
-            // Trigger browser download
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = storagePath.split("/").pop() || "VHELP-ADMIN.apk";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            // Redirect browser to download the APK
+            window.location.href = downloadUrl;
 
             this.downloadBtn.innerHTML = '<i class="fas fa-check"></i> Download Started!';
 
