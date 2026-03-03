@@ -1,5 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getStorage, ref, getBlob, listAll } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // Initialize Firebase with vhelp-user config
 const firebaseConfig = {
@@ -14,6 +16,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const storage = getStorage(app);
+const db = getFirestore(app);
 
 class VendorApp {
     constructor() {
@@ -171,32 +175,63 @@ class VendorApp {
         this.downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching Release...';
 
         try {
-            // Fetch latest release from V HELP-ADMIN or shared GitHub repo
-            // Note: Adjust the repository URL to where the Admin APK is stored.
-            // Assuming it's in the same repo, or change if diff repo.
-            const response = await fetch("https://api.github.com/repos/vhelpcc/VHELP-releases/releases/latest");
+            // Fetch version info from Firestore to get the storage path
+            const versionDoc = await getDoc(doc(db, "app_config", "admin_version"));
 
-            if (!response.ok) throw new Error("Failed to fetch latest release");
+            let storagePath = null;
 
-            const release = await response.json();
+            if (versionDoc.exists()) {
+                const data = versionDoc.data();
+                storagePath = data.storagePath;
+            }
 
-            // Look for the admin APK or universal APK
-            const apkAsset = release.assets.find(
-                (asset) => asset.name.includes("ADMIN") || asset.name.endsWith("universal.apk")
-            );
+            if (!storagePath) {
+                // Fallback: look for latest file in admin-releases/ folder
+                const releasesRef = ref(storage, "admin-releases/");
+                const result = await listAll(releasesRef);
 
-            if (!apkAsset) throw new Error("Admin APK file not found in latest release");
+                if (result.prefixes.length === 0) {
+                    throw new Error("No releases found in Firebase Storage.");
+                }
 
-            this.downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting Download...';
-            window.location.href = apkAsset.browser_download_url;
+                // Get newest version folder (last prefix after sorting)
+                const sortedFolders = result.prefixes.sort((a, b) => a.name.localeCompare(b.name));
+                const latestFolder = sortedFolders[sortedFolders.length - 1];
+                const filesInFolder = await listAll(latestFolder);
+
+                // Find the arm64 APK
+                const apkItem = filesInFolder.items.find(
+                    (item) => item.name.includes("arm64") && item.name.endsWith(".apk")
+                );
+
+                if (!apkItem) throw new Error("No APK found in latest release folder.");
+                storagePath = apkItem.fullPath;
+            }
+
+            // Download the APK blob directly from Firebase Storage (respects security rules)
+            this.downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+            const apkRef = ref(storage, storagePath);
+            const blob = await getBlob(apkRef);
+
+            // Trigger browser download
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = storagePath.split("/").pop() || "VHELP-ADMIN.apk";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            this.downloadBtn.innerHTML = '<i class="fas fa-check"></i> Download Started!';
 
         } catch (error) {
             console.error("Download error:", error);
-            alert("Failed to fetch the latest download link automatically. Please try again later or contact support.");
+            alert("Failed to download the APK. Please try again later or contact support.\n\nError: " + error.message);
         } finally {
             setTimeout(() => {
                 this.downloadBtn.innerHTML = originalText;
-            }, 2000);
+            }, 3000);
         }
     }
 
